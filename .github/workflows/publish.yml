@@ -19,11 +19,12 @@ jobs:
     name: Verify release build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code (with dig-rpc-types sibling)
+      - name: Checkout dig-rpc-types sibling
         uses: actions/checkout@v4
         with:
           repository: DIG-Network/dig-rpc-types
           path: dig-rpc-types
+          token: ${{ secrets.GH_ACCESS_TOKEN || github.token }}
 
       - name: Checkout dig-rpc
         uses: actions/checkout@v4

@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTDOCFLAGS: -D warnings
+
+jobs:
+  test:
+    name: Format / Clippy / Test / Docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code (with dig-rpc-types sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: DIG-Network/dig-rpc-types
+          path: dig-rpc-types
+
+      - name: Checkout dig-rpc
+        uses: actions/checkout@v4
+        with:
+          path: dig-rpc
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dig-rpc
+
+      - name: Check formatting
+        working-directory: dig-rpc
+        run: cargo fmt --all --check
+
+      - name: Check clippy
+        working-directory: dig-rpc
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        working-directory: dig-rpc
+        run: cargo test --all-features
+
+      - name: Build (release)
+        working-directory: dig-rpc
+        run: cargo build --release --all-features
+
+      - name: Check documentation
+        working-directory: dig-rpc
+        run: cargo doc --no-deps --all-features
+
+  coverage:
+    name: Coverage (>=80% lines)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code (with dig-rpc-types sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: DIG-Network/dig-rpc-types
+          path: dig-rpc-types
+
+      - name: Checkout dig-rpc
+        uses: actions/checkout@v4
+        with:
+          path: dig-rpc
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: dig-rpc
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      # Unit + integration coverage (full HTTP pipeline + real mTLS round-trip),
+      # CI-gated at >=80% lines (ecosystem standard).
+      - name: Run tests with coverage (gate >=80% lines)
+        working-directory: dig-rpc
+        run: >-
+          cargo llvm-cov --all-features
+          --fail-under-lines 80
+          --lcov --output-path lcov.info
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcov-coverage
+          path: dig-rpc/lcov.info
+          if-no-files-found: error

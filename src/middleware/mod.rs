@@ -1,23 +1,12 @@
-//! Tower middleware layers applied to every RPC request.
+//! Request-boundary middleware for the RPC server.
 //!
-//! Ordered outermost → innermost:
+//! The security-critical boundary — method resolution, the surface/tier
+//! allowlist, and `rpc.discover` — lives in [`mod@crate::dispatch`], applied in
+//! the HTTP handler itself so it cannot be bypassed. This module carries the
+//! stateful cross-cutting concern that must outlive a single request:
 //!
-//! 1. **RequestIdLayer** — attach a UUID to each request.
-//! 2. **PanicCatchLayer** — convert panics in inner handlers to
-//!    `InternalError` envelopes so the server never dies.
-//! 3. **AuditLayer** — always log the request + outcome.
-//! 4. **AuthLayer** — extract TLS peer cert → `Role` (stub impl in v0.1).
-//! 5. **AllowListLayer** — check `peer_role >= method.min_role` and
-//!    `public_exposed` on the public port.
-//! 6. **RateLimitLayer** — per-(peer, method) token bucket.
-//!
-//! Each layer is a small, testable unit. Most of the behavior is
-//! stateless and trivially compostable via `tower::ServiceBuilder`.
+//! - [`rate_limit`] — per-(peer, tier) token-bucket limiting.
 
-pub mod audit;
 pub mod rate_limit;
-pub mod request_id;
 
-pub use audit::AuditLayer;
-pub use rate_limit::{RateLimitConfig, RateLimitLayer, RateLimitState};
-pub use request_id::{RequestId, RequestIdLayer};
+pub use rate_limit::{BucketSpec, PeerKey, RateLimitConfig, RateLimitOutcome, RateLimitState};

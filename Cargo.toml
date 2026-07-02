@@ -1,8 +1,9 @@
 [package]
 name = "dig-rpc"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "Axum-based JSON-RPC server for the DIG Network fullnode / validator. mTLS transport, role-based method allow-lists, per-bucket rate limiting, graceful shutdown integrated with dig-service."
+rust-version = "1.75"
+description = "Axum-based JSON-RPC server framework for a DIG node. Serves the dig-rpc-types interface over mTLS (peer) / HTTPS (public read) / loopback (control), with tier-based method allow-lists, per-peer rate limiting, and graceful shutdown. The node supplies a handler; this crate owns the transport + envelope + boundary."
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/DIG-Network/dig-rpc"
 homepage = "https://github.com/DIG-Network/dig-rpc"
@@ -14,62 +15,49 @@ include = [
     "src/**/*.rs",
     "tests/**/*.rs",
     "Cargo.toml",
-    "Cargo.lock",
     "README.md",
+    "SPEC.md",
     "LICENSE*",
 ]
 
 [dependencies]
-# Wire contract + orchestration — the two sibling DIG crates.
-dig-rpc-types = { version = "0.1", path = "../dig-rpc-types" }
-dig-service = { version = "0.1", path = "../dig-service" }
+# The canonical wire contract — the ONLY DIG dependency. No node/service crate.
+dig-rpc-types = { version = "0.2", path = "../dig-rpc-types" }
 
 # HTTP stack.
-axum = { version = "0.7", features = ["http1", "http2", "json", "matched-path"] }
+axum = { version = "0.7", features = ["http1", "http2", "json"] }
 axum-server = { version = "0.7", default-features = false, features = ["tls-rustls"] }
-tower = { version = "0.5", features = ["util", "timeout", "limit"] }
-tower-http = { version = "0.6", features = ["trace", "cors"] }
-hyper = { version = "1", features = ["server"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "macros", "sync"] }
 
-# TLS / certs.
+# TLS / mTLS.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rustls-pemfile = "2"
-tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
-x509-parser = "0.17"
 
-# Serde.
+# Serde + async trait.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+async-trait = "0.1"
 
 # Utilities.
 tracing = "0.1"
 thiserror = "1"
 anyhow = "1"
 parking_lot = "0.12"
-futures = "0.3"
-bytes = "1"
-uuid = { version = "1", features = ["v7"] }
 
 [dev-dependencies]
-# Build an in-memory client for integration tests.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-manual-roots"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "macros", "sync", "test-util"] }
-async-trait = "0.1"
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+tempfile = "3"
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
 
 [features]
-default = ["metrics"]
-
-# Prometheus counters for request counts + durations.
-metrics = []
-
-# Expose a `LoopbackServer` helper for dependent crates' tests.
-testing = []
+default = []
 
 [lints.rust]
 unsafe_code = "forbid"
 missing_docs = "warn"
 
-[[test]]
-name = "dispatch"
-path = "tests/dispatch.rs"
+[lints.clippy]
+all = { level = "warn", priority = -1 }

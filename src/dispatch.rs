@@ -1,214 +1,258 @@
-//! JSON-RPC envelope → [`RpcApi::dispatch`] adapter.
+//! JSON-RPC envelope dispatch + the tier/allowlist boundary.
 //!
-//! Given a raw `JsonRpcRequest<serde_json::Value>` and an `impl RpcApi`,
-//! produce a fully-formed `JsonRpcResponse<serde_json::Value>` suitable for
-//! return to the client. Wraps:
+//! [`dispatch`] is the single entry the server (and any in-process caller) funnels
+//! a raw request through. It resolves the method, enforces the [`Surface`]
+//! boundary (which tiers the caller may reach), then calls the node's
+//! [`RpcHandler`], assembling a canonical JSON-RPC response either way.
 //!
-//! 1. The method-not-found check (via the method registry).
-//! 2. The `RpcApi::dispatch` call itself, which the API implementor owns.
-//! 3. Panic catching (converts panics to `InternalError` envelopes).
-//! 4. The response-envelope assembly (success vs error body).
+//! The boundary is the security-critical part and mirrors the canonical node:
+//!
+//! - unknown method → `-32601`;
+//! - a method not reachable on the caller's surface → `-32601` on the peer
+//!   surface (the allowlist is a denylist-by-omission, exactly
+//!   [`Method::is_peer_reachable`]), or `-32030` (`UNAUTHORIZED`) for a control
+//!   method reached off the loopback/in-process surface;
+//! - `rpc.discover` is answered here from the generated OpenRPC document (never
+//!   forwarded to the handler), so discovery can't drift.
 
 use std::sync::Arc;
 
-use dig_rpc_types::envelope::{
-    JsonRpcError, JsonRpcRequest, JsonRpcResponse, JsonRpcResponseBody, Version,
+use dig_rpc_types::{
+    envelope::{JsonRpcRequest, JsonRpcResponse, RequestId},
+    openrpc, ErrorCode, ErrorOrigin, Method, RpcError, Tier,
 };
-use dig_rpc_types::errors::ErrorCode;
-use dig_service::RpcApi;
+use serde_json::Value;
 
-use crate::method::MethodRegistry;
+use crate::handler::RpcHandler;
 
-/// Top-level dispatch.
+/// Which transport surface a request arrived on — this decides which method
+/// tiers are reachable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Surface {
+    /// The loopback / in-process (FFI) surface: ALL tiers reachable, including
+    /// [`Tier::Control`]. This is the local admin / browser-embedded path.
+    Loopback,
+    /// The public HTTPS read surface (browser, anonymous / ephemeral cert):
+    /// [`Tier::PublicRead`] only.
+    PublicRead,
+    /// The mTLS peer surface (other DIG nodes): the [`Method::is_peer_reachable`]
+    /// allowlist only. Control methods are never reachable here.
+    Peer,
+}
+
+impl Surface {
+    /// A stable discriminant byte, used as a rate-limit key seed.
+    pub const fn discriminant(self) -> u8 {
+        match self {
+            Surface::Loopback => 0,
+            Surface::PublicRead => 1,
+            Surface::Peer => 2,
+        }
+    }
+
+    /// Whether `method` is reachable on this surface.
+    fn allows(self, method: Method) -> bool {
+        match self {
+            // Local admin / in-process: everything.
+            Surface::Loopback => true,
+            // Anonymous browser read tier: public-read methods only.
+            Surface::PublicRead => method.tier() == Tier::PublicRead,
+            // Peer mTLS: exactly the allowlist.
+            Surface::Peer => method.is_peer_reachable(),
+        }
+    }
+
+    /// The error a rejected method yields on this surface. A control method
+    /// reached off-loopback is an authorization failure (`-32030`); everything
+    /// else is method-not-found (`-32601`) — the peer surface deliberately
+    /// reports not-found rather than leaking that a management method exists.
+    fn rejection(self, method: Method) -> RpcError {
+        if method.tier() == Tier::Control && self != Surface::Loopback {
+            RpcError::new(
+                ErrorCode::Unauthorized,
+                format!(
+                    "{} is a control method; reachable only on the loopback surface",
+                    method.name()
+                ),
+                ErrorOrigin::Control,
+            )
+        } else {
+            RpcError::of(
+                ErrorCode::MethodNotFound,
+                format!("method {} not available on this surface", method.name()),
+            )
+        }
+    }
+}
+
+/// Dispatch one JSON-RPC request against `handler`, arriving on `surface`.
 ///
-/// Attempts the call under a `catch_unwind` so that a panic in a handler
-/// returns `InternalError` rather than tearing down the worker thread.
-pub async fn dispatch_envelope<R: RpcApi + ?Sized>(
-    req: JsonRpcRequest<serde_json::Value>,
-    api: &R,
-    registry: &MethodRegistry,
-) -> JsonRpcResponse<serde_json::Value> {
-    // Fast path: method registered?
-    if registry.get(&req.method).is_none() {
-        return JsonRpcResponse {
-            jsonrpc: Version,
-            id: req.id,
-            body: JsonRpcResponseBody::Error {
-                error: JsonRpcError {
-                    code: ErrorCode::MethodNotFound,
-                    message: format!("method {:?} not registered", req.method),
-                    data: None,
-                },
-            },
-        };
+/// Always returns a well-formed [`JsonRpcResponse`] echoing the request id.
+pub async fn dispatch<H: RpcHandler + ?Sized>(
+    handler: &H,
+    surface: Surface,
+    req: JsonRpcRequest<Value>,
+) -> JsonRpcResponse<Value> {
+    let id = req.id.clone();
+
+    // Resolve the method name against the canonical catalogue.
+    let Some(method) = Method::from_name(&req.method) else {
+        return JsonRpcResponse::error(
+            id,
+            RpcError::of(
+                ErrorCode::MethodNotFound,
+                format!("method {:?} not found", req.method),
+            ),
+        );
+    };
+
+    // Enforce the surface/tier boundary BEFORE touching the handler.
+    if !surface.allows(method) {
+        return JsonRpcResponse::error(id, surface.rejection(method));
     }
 
-    let method = req.method.clone();
-    let params = req.params.unwrap_or(serde_json::Value::Null);
+    // rpc.discover is served from the generated OpenRPC document, never the
+    // handler — discovery cannot drift from the contract.
+    if method == Method::RpcDiscover {
+        return JsonRpcResponse::success(id, openrpc::openrpc_document(&handler.version()));
+    }
 
-    // We don't use `catch_unwind` here (RpcApi::dispatch may hold !UnwindSafe
-    // state like Arc<Mutex<...>>). The panic-catch layer in the tower stack
-    // wraps the outer HTTP handler and converts panics to HTTP 500 +
-    // InternalError body. That covers the panic case without the
-    // UnwindSafe bound.
-    let result = api.dispatch(&method, params).await;
-
-    match result {
-        Ok(value) => JsonRpcResponse {
-            jsonrpc: Version,
-            id: req.id,
-            body: JsonRpcResponseBody::Success { result: value },
-        },
-        Err(err) => JsonRpcResponse {
-            jsonrpc: Version,
-            id: req.id,
-            body: JsonRpcResponseBody::Error { error: err },
-        },
+    let params = req.params.unwrap_or(Value::Null);
+    match handler.handle(method, params).await {
+        Ok(result) => JsonRpcResponse::success(id, result),
+        Err(err) => JsonRpcResponse::error(id, err),
     }
 }
 
-/// Build an error envelope by-hand. Useful for middleware that rejects
-/// before dispatch runs (rate limit, unknown role, etc.).
-pub fn error_envelope(
-    id: dig_rpc_types::envelope::RequestId,
-    code: ErrorCode,
-    message: impl Into<String>,
-) -> JsonRpcResponse<serde_json::Value> {
-    JsonRpcResponse {
-        jsonrpc: Version,
-        id,
-        body: JsonRpcResponseBody::Error {
-            error: JsonRpcError {
-                code,
-                message: message.into(),
-                data: None,
-            },
-        },
-    }
+/// Build a bare error response for a request that failed to even parse into an
+/// envelope (used by the transport before [`dispatch`] can run). `id` is
+/// [`RequestId::Null`] when the id could not be recovered.
+pub fn parse_error_response(id: RequestId, message: impl Into<String>) -> JsonRpcResponse<Value> {
+    JsonRpcResponse::error(id, RpcError::of(ErrorCode::ParseError, message))
 }
 
-/// Shared stub `RpcApi` — rejects every method with `InternalError`.
-/// Used internally as a placeholder when binaries build a server without
-/// an actual API implementation (e.g., doctests).
-///
-/// Kept `pub(crate)` so it's not part of the public API; downstream
-/// binaries supply their own `RpcApi`.
-#[cfg(test)]
-pub(crate) struct StubApi;
-
-#[cfg(test)]
-#[async_trait::async_trait]
-impl RpcApi for StubApi {
-    async fn dispatch(
-        &self,
-        method: &str,
-        _params: serde_json::Value,
-    ) -> Result<serde_json::Value, JsonRpcError> {
-        Err(JsonRpcError {
-            code: ErrorCode::InternalError,
-            message: format!("stub api does not implement {method:?}"),
-            data: None,
-        })
-    }
-}
-
-// Suppress unused-import warning when tests are not compiled.
-#[allow(dead_code)]
-#[doc(hidden)]
-pub(crate) fn _keep_arc_usage_if_any(_: Arc<()>) {}
+/// A handler shared across the tower stack.
+pub type SharedHandler = Arc<dyn RpcHandler>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::method::{MethodMeta, RateBucket};
-    use crate::role::Role;
-    use dig_rpc_types::envelope::RequestId;
+    use async_trait::async_trait;
+    use dig_rpc_types::envelope::JsonRpcResponseBody;
+    use serde_json::json;
 
-    /// **Proves:** dispatching an unregistered method returns a
-    /// `MethodNotFound` envelope with the original request id.
-    ///
-    /// **Why it matters:** If `dispatch_envelope` ignored the registry,
-    /// the server would fan out every unknown method to `RpcApi::dispatch`,
-    /// which typically returns `InternalError` — defeating the clean
-    /// "method not found" UX.
-    ///
-    /// **Catches:** a regression where the registry check is bypassed, or
-    /// where the id from the request is not echoed back.
-    #[tokio::test]
-    async fn unknown_method_returns_method_not_found() {
-        let api = StubApi;
-        let reg = MethodRegistry::new();
-        let req = JsonRpcRequest {
-            jsonrpc: Version,
-            id: RequestId::Num(7),
-            method: "nope".to_string(),
-            params: None,
-        };
-        let resp = dispatch_envelope(req, &api, &reg).await;
-        assert!(matches!(resp.id, RequestId::Num(7)));
-        match resp.body {
-            JsonRpcResponseBody::Error { error } => {
-                assert_eq!(error.code, ErrorCode::MethodNotFound);
-            }
-            _ => panic!("expected error response"),
+    /// A handler that echoes the method name back as `{ "method": name }` for
+    /// any method, so dispatch outcomes are observable.
+    struct Echo;
+    #[async_trait]
+    impl RpcHandler for Echo {
+        async fn handle(&self, method: Method, _params: Value) -> Result<Value, RpcError> {
+            Ok(json!({ "method": method.name() }))
         }
     }
 
-    /// **Proves:** when the API returns `Err(JsonRpcError)`, that error is
-    /// propagated into the response envelope unchanged.
-    ///
-    /// **Why it matters:** API implementors return typed errors to
-    /// distinguish e.g. `WalletLocked` from `InvalidParams`. If the
-    /// dispatch layer flattened all errors to `InternalError`, that
-    /// signal would be lost.
-    ///
-    /// **Catches:** a regression that wraps the inner error in a generic
-    /// outer one.
-    #[tokio::test]
-    async fn api_error_propagates() {
-        // Register the method so we pass the "unknown method" check.
-        let reg = MethodRegistry::new();
-        reg.register(MethodMeta::read(
-            "stub",
-            Role::Explorer,
-            RateBucket::ReadLight,
-        ));
-        let api = StubApi;
-        let req = JsonRpcRequest {
-            jsonrpc: Version,
-            id: RequestId::Num(1),
-            method: "stub".to_string(),
-            params: None,
-        };
-        let resp = dispatch_envelope(req, &api, &reg).await;
-        match resp.body {
-            JsonRpcResponseBody::Error { error } => {
-                assert_eq!(error.code, ErrorCode::InternalError);
-                assert!(error.message.contains("stub"));
-            }
-            _ => panic!("expected error response"),
+    fn req(method: &str) -> JsonRpcRequest<Value> {
+        JsonRpcRequest::new(1, method, json!({}))
+    }
+
+    fn err_of(resp: &JsonRpcResponse<Value>) -> &RpcError {
+        match &resp.body {
+            JsonRpcResponseBody::Error { error } => error,
+            _ => panic!("expected error, got {resp:?}"),
         }
     }
 
-    /// **Proves:** `error_envelope` builds a well-formed error response
-    /// with the caller-supplied id / code / message.
-    ///
-    /// **Why it matters:** Middleware layers (rate-limit, allow-list) use
-    /// this helper to reject requests before dispatch. The envelope shape
-    /// must match what clients expect so their error-handling paths fire.
-    ///
-    /// **Catches:** a regression that omits `jsonrpc: "2.0"` or misaligns
-    /// the body tag.
+    /// **Proves:** an unknown method is `-32601`, id echoed.
+    #[tokio::test]
+    async fn unknown_method_not_found() {
+        let resp = dispatch(&Echo, Surface::Loopback, req("dig.nope")).await;
+        assert_eq!(err_of(&resp).code, ErrorCode::MethodNotFound);
+        assert_eq!(resp.id, RequestId::Num(1));
+    }
+
+    /// **Proves:** a control method is served on loopback but rejected with
+    /// `-32030 UNAUTHORIZED` on the peer AND public surfaces (the audit #179
+    /// boundary).
+    #[tokio::test]
+    async fn control_method_gated_to_loopback() {
+        let ok = dispatch(&Echo, Surface::Loopback, req("cache.clear")).await;
+        assert!(matches!(ok.body, JsonRpcResponseBody::Success { .. }));
+
+        for surface in [Surface::Peer, Surface::PublicRead] {
+            let resp = dispatch(&Echo, surface, req("cache.clear")).await;
+            assert_eq!(err_of(&resp).code, ErrorCode::Unauthorized, "{surface:?}");
+            assert_eq!(err_of(&resp).data.origin, ErrorOrigin::Control);
+        }
+    }
+
+    /// **Proves:** a non-allowlisted read method (e.g. dig.getManifest, which is
+    /// public-read but NOT peer-reachable) is method-not-found on the peer
+    /// surface — the allowlist, not the tier, is the peer boundary.
+    #[tokio::test]
+    async fn public_read_not_on_peer_unless_allowlisted() {
+        // getManifest: PublicRead, not peer-reachable.
+        let resp = dispatch(&Echo, Surface::Peer, req("dig.getManifest")).await;
+        assert_eq!(err_of(&resp).code, ErrorCode::MethodNotFound);
+
+        // getContent: PublicRead AND peer-reachable → served.
+        let ok = dispatch(&Echo, Surface::Peer, req("dig.getContent")).await;
+        assert!(matches!(ok.body, JsonRpcResponseBody::Success { .. }));
+    }
+
+    /// **Proves:** the three chain-anchored reads are served on the peer surface
+    /// (public-read yet allowlisted).
+    #[tokio::test]
+    async fn anchored_reads_served_on_peer() {
+        for m in [
+            "dig.getAnchoredRoot",
+            "dig.getCollection",
+            "dig.listCollectionItems",
+        ] {
+            let resp = dispatch(&Echo, Surface::Peer, req(m)).await;
+            assert!(
+                matches!(resp.body, JsonRpcResponseBody::Success { .. }),
+                "{m}"
+            );
+        }
+    }
+
+    /// **Proves:** rpc.discover is answered from the generated OpenRPC document
+    /// (loopback only), never forwarded to the handler.
+    #[tokio::test]
+    async fn rpc_discover_served_from_generator() {
+        let resp = dispatch(&Echo, Surface::Loopback, req("rpc.discover")).await;
+        match resp.body {
+            JsonRpcResponseBody::Success { result } => {
+                assert_eq!(result["openrpc"], "1.2.6");
+                // Not the Echo handler's `{method: …}` shape.
+                assert!(result.get("methods").is_some());
+            }
+            _ => panic!("expected discovery document"),
+        }
+        // And it's control-gated: not on the peer surface.
+        let peer = dispatch(&Echo, Surface::Peer, req("rpc.discover")).await;
+        assert_eq!(err_of(&peer).code, ErrorCode::Unauthorized);
+    }
+
+    /// **Proves:** a handler error propagates unchanged into the envelope.
+    #[tokio::test]
+    async fn handler_error_propagates() {
+        struct Failing;
+        #[async_trait]
+        impl RpcHandler for Failing {
+            async fn handle(&self, _m: Method, _p: Value) -> Result<Value, RpcError> {
+                Err(RpcError::of(ErrorCode::RootNotAnchored, "stale root"))
+            }
+        }
+        let resp = dispatch(&Failing, Surface::Loopback, req("dig.getContent")).await;
+        assert_eq!(err_of(&resp).code, ErrorCode::RootNotAnchored);
+        assert_eq!(err_of(&resp).data.code, "ROOT_NOT_ANCHORED");
+    }
+
+    /// **Proves:** `parse_error_response` builds a `-32700` envelope.
     #[test]
-    fn error_envelope_shape() {
-        let resp = error_envelope(RequestId::Num(5), ErrorCode::RateLimited, "slow down");
-        assert!(matches!(resp.id, RequestId::Num(5)));
-        match resp.body {
-            JsonRpcResponseBody::Error { error } => {
-                assert_eq!(error.code, ErrorCode::RateLimited);
-                assert_eq!(error.message, "slow down");
-            }
-            _ => panic!("expected error response"),
-        }
+    fn parse_error_shape() {
+        let resp = parse_error_response(RequestId::Null, "bad json");
+        assert_eq!(err_of(&resp).code, ErrorCode::ParseError);
     }
 }

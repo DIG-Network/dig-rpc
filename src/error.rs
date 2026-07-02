@@ -1,41 +1,29 @@
-//! Server-level errors (NOT per-request — per-request errors are JSON-RPC
-//! envelopes defined in `dig-rpc-types`).
+//! Server operational errors (bind / TLS / fatal).
+//!
+//! These are the server's own lifecycle failures — distinct from the per-request
+//! [`RpcError`](dig_rpc_types::RpcError) carried in the JSON-RPC envelope. A
+//! `RpcServerError` means the server could not start or keep running.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use thiserror::Error;
-
-/// All server-level failure modes.
-///
-/// Per-request errors are returned as `JsonRpcError` envelopes from
-/// [`crate::dispatch::dispatch_envelope`]; those use
-/// [`dig_rpc_types::errors::ErrorCode`] for wire compatibility. The errors
-/// here are strictly for `RpcServer` startup and fatal runtime failures.
-#[derive(Error, Debug, Clone)]
+/// A server lifecycle error.
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum RpcServerError {
-    /// Binding the TCP / TLS listener on `addr` failed.
+    /// Binding the listen socket failed.
     #[error("failed to bind {addr}: {source}")]
     BindFailed {
-        /// The address the server tried to bind.
+        /// The address that could not be bound.
         addr: SocketAddr,
         /// The underlying I/O error.
-        #[source]
         source: Arc<std::io::Error>,
     },
 
-    /// TLS configuration could not be loaded (cert file missing, bad PEM,
-    /// expired cert, mismatched key).
-    #[error("TLS setup failed: {0}")]
-    TlsSetup(#[source] Arc<anyhow::Error>),
+    /// Loading or building the TLS configuration failed.
+    #[error("TLS configuration error: {0}")]
+    Tls(Arc<anyhow::Error>),
 
-    /// Catch-all unrecoverable server error.
+    /// The server terminated with a fatal error.
     #[error("fatal server error: {0}")]
-    Fatal(#[source] Arc<anyhow::Error>),
-}
-
-impl From<std::io::Error> for RpcServerError {
-    fn from(e: std::io::Error) -> Self {
-        RpcServerError::Fatal(Arc::new(anyhow::anyhow!(e)))
-    }
+    Fatal(Arc<anyhow::Error>),
 }

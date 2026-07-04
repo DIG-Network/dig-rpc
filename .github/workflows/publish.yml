@@ -1,9 +1,7 @@
 name: Release verification
 
+# crates.io publish is manual (workflow_dispatch) pending the crates.io-publishing decision (#230).
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       version:

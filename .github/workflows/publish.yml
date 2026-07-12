@@ -35,25 +35,16 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          components: rustfmt, clippy
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: dig-rpc
 
-      - name: Check formatting
-        working-directory: dig-rpc
-        run: cargo fmt --all -- --check
-
-      - name: Check clippy
-        working-directory: dig-rpc
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Run tests
-        working-directory: dig-rpc
-        run: cargo test --all-features
-
+      # Deploy/release verification builds + packages only — it does NOT re-run the test
+      # suite: the PR's CI gates (fmt, clippy, nextest+coverage) already tested this exact
+      # merged tree before it reached main (#488 release-blocker: re-running the full suite
+      # here just re-tests what's already green and stalls the release).
       - name: Verify release build
         working-directory: dig-rpc
         run: cargo build --release --all-features

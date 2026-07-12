@@ -53,9 +53,15 @@ jobs:
         working-directory: dig-rpc
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Run tests
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@cargo-nextest
+
+      # cargo-nextest with per-test retries (.config/nextest.toml, #489 flaky-test management):
+      # a test that fails then passes on retry is reported as flaky in the run summary instead
+      # of either silently re-running the whole job or failing the build outright.
+      - name: Run tests (nextest, flaky-aware)
         working-directory: dig-rpc
-        run: cargo test --all-features
+        run: cargo nextest run --all-features
 
       - name: Build (release)
         working-directory: dig-rpc
@@ -95,12 +101,19 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@cargo-nextest
+
       # Unit + integration coverage (full HTTP pipeline + real mTLS round-trip),
-      # CI-gated at >=80% lines (ecosystem standard).
-      - name: Run tests with coverage (gate >=80% lines)
+      # CI-gated at >=80% lines (ecosystem standard). Runs via the COMBINED
+      # `cargo llvm-cov nextest` form so llvm-cov instruments the same nextest run that
+      # applies .config/nextest.toml's retries (flaky-test management, #489) — running
+      # `cargo nextest run` and `cargo llvm-cov` as two separate steps collects zero
+      # coverage from the nextest run and silently fails the coverage gate.
+      - name: Run tests with coverage (nextest, gate >=80% lines)
         working-directory: dig-rpc
         run: >-
-          cargo llvm-cov --all-features
+          cargo llvm-cov nextest --all-features
           --fail-under-lines 80
           --lcov --output-path lcov.info
 

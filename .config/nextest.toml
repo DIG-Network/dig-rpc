@@ -1,0 +1,7 @@
+# cargo-nextest configuration (flaky-test management, #489).
+#
+# `retries = 2` re-runs a failing test up to 2 additional times before the suite is marked
+# failed, surfacing genuinely-flaky tests (retry-then-pass) in the run summary instead of
+# quietly re-running the whole job or, worse, papering over intermittent failures.
+[profile.default]
+retries = 2

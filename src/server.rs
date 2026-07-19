@@ -4,7 +4,7 @@
 //!
 //! - [`RpcServerMode::Loopback`] — plain HTTP on loopback, ALL tiers reachable
 //!   (the local admin / control surface; MUST bind a loopback address).
-//! - [`RpcServerMode::PublicRead`] — HTTPS, [`Tier::PublicRead`](dig_rpc_types::Tier::PublicRead)
+//! - [`RpcServerMode::PublicRead`] — HTTPS, [`Tier::PublicRead`](dig_rpc_protocol::Tier::PublicRead)
 //!   only (browser / anonymous read tier).
 //! - [`RpcServerMode::Peer`] — mTLS, the peer allowlist only (other DIG nodes).
 //!
@@ -49,7 +49,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use dig_rpc_types::envelope::{JsonRpcRequest, JsonRpcResponse};
+use dig_rpc_protocol::envelope::{JsonRpcRequest, JsonRpcResponse};
 use serde_json::Value;
 
 use crate::dispatch::{dispatch, Surface};
@@ -239,7 +239,7 @@ async fn handle_post<H: RpcHandler>(
     // Rate-limit by the target method's tier. A shared per-surface peer key is
     // used here (the transport layer wires a real per-peer key from the TLS SPKI
     // / remote addr); the tier is what bounds each surface's budget.
-    if let Some(method) = dig_rpc_types::Method::from_name(&req.method) {
+    if let Some(method) = dig_rpc_protocol::Method::from_name(&req.method) {
         // Bound each surface's budget by the method's own tier. The transport
         // layer wires a real per-peer key (TLS SPKI / remote addr); this uses a
         // per-surface key so the tier budget is the shared limiter for now.
@@ -247,8 +247,8 @@ async fn handle_post<H: RpcHandler>(
         if let RateLimitOutcome::Deny { retry_after_secs } =
             state.rate_limit.check(&peer_key, method.tier())
         {
-            let err = dig_rpc_types::RpcError::of(
-                dig_rpc_types::ErrorCode::ServerError,
+            let err = dig_rpc_protocol::RpcError::of(
+                dig_rpc_protocol::ErrorCode::ServerError,
                 format!("rate limited; retry after {retry_after_secs}s"),
             )
             .with_extra("retry_after_secs", serde_json::json!(retry_after_secs));
@@ -268,7 +268,7 @@ async fn handle_healthz<H: RpcHandler>(State(state): State<AppState<H>>) -> impl
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dig_rpc_types::{RpcError, Tier};
+    use dig_rpc_protocol::{RpcError, Tier};
 
     #[test]
     fn loopback_mode_reports_loopback_surface() {
@@ -318,7 +318,7 @@ mod tests {
         impl RpcHandler for N {
             async fn handle(
                 &self,
-                _m: dig_rpc_types::Method,
+                _m: dig_rpc_protocol::Method,
                 _p: Value,
             ) -> Result<Value, RpcError> {
                 Ok(serde_json::json!({}))
@@ -382,7 +382,10 @@ mod tests {
         #[async_trait::async_trait]
         impl RpcHandler for Sick {
             async fn healthz(&self) -> Result<(), RpcError> {
-                Err(RpcError::of(dig_rpc_types::ErrorCode::ServerError, "down"))
+                Err(RpcError::of(
+                    dig_rpc_protocol::ErrorCode::ServerError,
+                    "down",
+                ))
             }
         }
         let server = RpcServer::new(

@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use dig_rpc::{RpcHandler, RpcServer, RpcServerMode};
-use dig_rpc_types::{ErrorCode, Method, RpcError};
+use dig_rpc_protocol::{ErrorCode, Method, RpcError};
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use tower::ServiceExt;

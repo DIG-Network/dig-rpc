@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use dig_rpc_types::Tier;
+use dig_rpc_protocol::Tier;
 use parking_lot::Mutex;
 
 /// Opaque per-peer identifier used as a hash key. Callers use

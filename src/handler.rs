@@ -5,14 +5,14 @@
 //! content, resolve a chain-anchored root, or read a store — the consuming node
 //! (the digstore `dig-node` crate, the standalone binary) supplies that via
 //! this one small async trait. This is why `dig-rpc` depends only on
-//! [`dig_rpc_types`], never on a node/service crate.
+//! [`dig_rpc_protocol`], never on a node/service crate.
 //!
 //! A handler receives a **resolved** [`Method`] plus its raw params `Value` and
 //! returns either a result `Value` or a canonical [`RpcError`]. By the time the
 //! handler is called, the dispatcher has already:
 //!
 //! 1. rejected unknown methods with `-32601`;
-//! 2. enforced the [`Tier`](dig_rpc_types::Tier) boundary (a non-allowlisted method on the peer
+//! 2. enforced the [`Tier`](dig_rpc_protocol::Tier) boundary (a non-allowlisted method on the peer
 //!    surface is `-32601`; a control method off the loopback surface is
 //!    `-32030`);
 //! 3. applied rate limiting.
@@ -20,7 +20,7 @@
 //! So a handler implements only the *method semantics*, not the boundary.
 
 use async_trait::async_trait;
-use dig_rpc_types::{ErrorCode, Method, RpcError};
+use dig_rpc_protocol::{ErrorCode, Method, RpcError};
 use serde_json::Value;
 
 /// The node behind the RPC server.
@@ -31,7 +31,7 @@ pub trait RpcHandler: Send + Sync + 'static {
     /// Handle a resolved method call, returning a result value or a canonical
     /// error. `params` is the raw JSON-RPC `params` (`Null` when absent) — the
     /// handler deserializes it into the method's params type from
-    /// [`dig_rpc_types::types`].
+    /// [`dig_rpc_protocol::types`].
     ///
     /// The default implementation rejects every method with `-32601`, so a
     /// handler need only override the methods it actually serves (its profile).

@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use dig_rpc::{InternalCertPaths, RpcHandler, RpcServer, RpcServerMode, TlsConfig};
-use dig_rpc_types::{Method, RpcError};
+use dig_rpc_protocol::{Method, RpcError};
 use rcgen::{BasicConstraints, CertificateParams, DnType, IsCa, KeyPair, KeyUsagePurpose, SanType};
 use serde_json::{json, Value};
 

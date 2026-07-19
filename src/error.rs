@@ -1,7 +1,7 @@
 //! Server operational errors (bind / TLS / fatal).
 //!
 //! These are the server's own lifecycle failures — distinct from the per-request
-//! [`RpcError`](dig_rpc_types::RpcError) carried in the JSON-RPC envelope. A
+//! [`RpcError`](dig_rpc_protocol::RpcError) carried in the JSON-RPC envelope. A
 //! `RpcServerError` means the server could not start or keep running.
 
 use std::net::SocketAddr;

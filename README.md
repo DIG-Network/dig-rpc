@@ -1,11 +1,11 @@
 # dig-rpc
 
 An axum-based JSON-RPC **server framework** for a DIG node. It serves the
-canonical [`dig-rpc-types`](https://github.com/DIG-Network/dig-rpc-types)
+canonical [`dig-rpc-protocol`](https://github.com/DIG-Network/dig-rpc-protocol)
 interface over the three DIG transport surfaces and owns everything
 transport-shaped so a node doesn't have to.
 
-Depends ONLY on `dig-rpc-types` — no node or service crate. The node supplies
+Depends ONLY on `dig-rpc-protocol` — no node or service crate. The node supplies
 method semantics through one small trait, [`RpcHandler`].
 
 ## What it owns
@@ -31,7 +31,7 @@ The full contract is in [`SPEC.md`](./SPEC.md).
 ```rust
 use std::sync::Arc;
 use dig_rpc::{RpcHandler, RpcServer, RpcServerMode};
-use dig_rpc_types::{Method, RpcError, ErrorCode};
+use dig_rpc_protocol::{Method, RpcError, ErrorCode};
 use serde_json::{json, Value};
 
 struct MyNode;

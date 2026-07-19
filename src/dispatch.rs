@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use dig_rpc_types::{
+use dig_rpc_protocol::{
     envelope::{JsonRpcRequest, JsonRpcResponse, RequestId},
     openrpc, ErrorCode, ErrorOrigin, Method, RpcError, Tier,
 };
@@ -138,7 +138,7 @@ pub type SharedHandler = Arc<dyn RpcHandler>;
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use dig_rpc_types::envelope::JsonRpcResponseBody;
+    use dig_rpc_protocol::envelope::JsonRpcResponseBody;
     use serde_json::json;
 
     /// A handler that echoes the method name back as `{ "method": name }` for

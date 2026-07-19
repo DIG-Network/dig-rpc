@@ -1,9 +1,9 @@
 [package]
 name = "dig-rpc"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.75"
-description = "Axum-based JSON-RPC server framework for a DIG node. Serves the dig-rpc-types interface over mTLS (peer) / HTTPS (public read) / loopback (control), with tier-based method allow-lists, per-peer rate limiting, and graceful shutdown. The node supplies a handler; this crate owns the transport + envelope + boundary."
+description = "Axum-based JSON-RPC server framework for a DIG node. Serves the dig-rpc-protocol interface over mTLS (peer) / HTTPS (public read) / loopback (control), with tier-based method allow-lists, per-peer rate limiting, and graceful shutdown. The node supplies a handler; this crate owns the transport + envelope + boundary."
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/DIG-Network/dig-rpc"
 homepage = "https://github.com/DIG-Network/dig-rpc"
@@ -22,7 +22,9 @@ include = [
 
 [dependencies]
 # The canonical wire contract — the ONLY DIG dependency. No node/service crate.
-dig-rpc-types = { version = "0.2", path = "../dig-rpc-types" }
+# dig-rpc-types was renamed + superseded by dig-rpc-protocol v0.3 (yanked on
+# crates.io); this crate now depends on the canonical crates.io release.
+dig-rpc-protocol = "0.3"
 
 # HTTP stack.
 axum = { version = "0.7", features = ["http1", "http2", "json"] }

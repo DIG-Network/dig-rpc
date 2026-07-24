@@ -249,9 +249,9 @@ dependencies = [
 
 [[package]]
 name = "dig-rpc-protocol"
-version = "0.3.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a390fe48ee8d0dd7a9686f13cd01bb131f853c6f54d7e3c6554ab0dc89aafbe9"
+checksum = "b691a52e067f81fcd94d5d30598261777e11ebde32ff6b54ea3805a8b26912ec"
 dependencies = [
  "serde",
  "serde_json",

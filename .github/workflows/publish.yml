@@ -1,4 +1,4 @@
-name: Release verification
+name: Publish to crates.io
 
 on:
   push:
@@ -7,29 +7,36 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to verify (e.g., v0.2.0)'
+        description: 'Version to publish (e.g., v0.4.0)'
         required: true
         type: string
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  verify:
-    name: Verify release build
+  # No test/fmt/clippy re-run here (#489/#488): a tag is only ever pushed by
+  # the release workflow after the PR that produced this tree already passed
+  # every CI gate (fmt/clippy/nextest+retries/coverage) on the PR itself.
+  # Re-running the full suite here just re-tests the same already-verified
+  # tree and was blocking releases on transient flakes post-merge. Publish =
+  # build + package + publish only.
+  #
+  # WHY this replaced the old "Release verification" workflow: dig-rpc predates
+  # dig-rpc-protocol being on crates.io — it needed a sibling checkout of the
+  # dig-rpc-types path dep, which made `cargo publish` impossible. The dep is
+  # crates.io-published now (dig-rpc-protocol ^0.4), so this crate publishes
+  # like every other DIG crate (CLAUDE.md §3.6 all-crates rule).
+  publish:
+    name: Publish to crates.io
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     steps:
-      - name: Checkout dig-rpc-types sibling
+      - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          repository: DIG-Network/dig-rpc-types
-          path: dig-rpc-types
-          token: ${{ secrets.GH_ACCESS_TOKEN || github.token }}
-
-      - name: Checkout dig-rpc
-        uses: actions/checkout@v4
-        with:
-          path: dig-rpc
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -38,13 +45,21 @@ jobs:
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: dig-rpc
 
-      # Deploy/release verification builds + packages only — it does NOT re-run the test
-      # suite: the PR's CI gates (fmt, clippy, nextest+coverage) already tested this exact
-      # merged tree before it reached main (#488 release-blocker: re-running the full suite
-      # here just re-tests what's already green and stalls the release).
-      - name: Verify release build
-        working-directory: dig-rpc
+      - name: Verify package can be built
         run: cargo build --release --all-features
+
+      - name: Verify package can be packaged
+        run: cargo package --allow-dirty
+
+      - name: Check if CARGO_REGISTRY_TOKEN is available
+        run: |
+          if [ -z "${{ secrets.CARGO_REGISTRY_TOKEN }}" ]; then
+            echo "CARGO_REGISTRY_TOKEN secret is not set in repository settings"
+            exit 1
+          fi
+
+      - name: Publish to crates.io
+        run: cargo publish --allow-dirty --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

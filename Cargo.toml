@@ -1,6 +1,6 @@
 [package]
 name = "dig-rpc"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 rust-version = "1.75"
 description = "Axum-based JSON-RPC server framework for a DIG node. Serves the dig-rpc-protocol interface over mTLS (peer) / HTTPS (public read) / loopback (control), with tier-based method allow-lists, per-peer rate limiting, and graceful shutdown. The node supplies a handler; this crate owns the transport + envelope + boundary."

@@ -216,6 +216,23 @@ mod tests {
         }
     }
 
+    /// **Proves:** the module-pull pair (`dig.getModuleInfo` / `dig.fetchModuleRange`,
+    /// dig-rpc-protocol 0.5's peer wire for the reshare leg, #1576) is
+    /// reachable on the peer surface — dig-rpc needs no method-specific code
+    /// for this, only the protocol crate's `is_peer_reachable` allowlist, but a
+    /// bump that silently drops peer-reachability would break resharing, so
+    /// this locks it in.
+    #[tokio::test]
+    async fn module_pull_methods_served_on_peer() {
+        for m in ["dig.getModuleInfo", "dig.fetchModuleRange"] {
+            let resp = dispatch(&Echo, Surface::Peer, req(m)).await;
+            assert!(
+                matches!(resp.body, JsonRpcResponseBody::Success { .. }),
+                "{m}"
+            );
+        }
+    }
+
     /// **Proves:** rpc.discover is answered from the generated OpenRPC document
     /// (loopback only), never forwarded to the handler.
     #[tokio::test]

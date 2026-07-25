@@ -157,6 +157,17 @@ async fn mtls_peer_surface_round_trip() {
         "getManifest not peer-reachable: {nf}"
     );
 
+    // The module-pull pair (dig-rpc-protocol 0.5, the reshare leg's peer wire,
+    // #1576) round-trips over real mTLS: dig-rpc needs no method-specific
+    // code to carry them, only the generic RpcHandler::handle pass-through.
+    for method in ["dig.getModuleInfo", "dig.fetchModuleRange"] {
+        let served = call(&client, &base, method).await;
+        assert_eq!(
+            served["result"]["served"], method,
+            "{method} over mTLS: {served}"
+        );
+    }
+
     tx.send(()).unwrap();
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
 }

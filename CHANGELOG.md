@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 This project adheres to [Semantic Versioning](https://semver.org) and
 [Conventional Commits](https://www.conventionalcommits.org).
 
+## [0.5.0] - 2026-07-25
+
+### Features
+- **deps:** Bump dig-rpc-protocol to 0.5.0, module-pull pass-through (#1576) (#6)
+
 ## [0.4.1] - 2026-07-24
 
 ### CI

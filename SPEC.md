@@ -1,13 +1,13 @@
 # dig-rpc — normative specification
 
 **Status:** normative. `dig-rpc` is the axum-based JSON-RPC **server framework**
-that serves the [`dig-rpc-types`](../dig-rpc-types/SPEC.md) interface. It owns the
+that serves the [`dig-rpc-protocol`](../dig-rpc-types/SPEC.md) interface. It owns the
 transport, the JSON-RPC envelope, the surface/tier boundary, and rate limiting; a
 DIG node supplies the method semantics via one trait. This spec is the contract
 for that framework. Cross-references [`SYSTEM.md`](../../../SYSTEM.md) and the
-docs.dig.net protocol pages; the wire shapes are defined by `dig-rpc-types`.
+docs.dig.net protocol pages; the wire shapes are defined by `dig-rpc-protocol`.
 
-`dig-rpc` depends ONLY on `dig-rpc-types` — never on a node or service crate.
+`dig-rpc` depends ONLY on `dig-rpc-protocol` — never on a node or service crate.
 
 ---
 
@@ -91,7 +91,7 @@ a 10 s drain window.
 
 ## 6. Errors
 
-Per-request errors use the canonical `dig-rpc-types` envelope
+Per-request errors use the canonical `dig-rpc-protocol` envelope
 (`{code, message, data:{code, origin}}`). Framework-minted boundary/limit errors
 go through the same `RpcError` constructor, so every error — handler-minted or
 framework-minted — carries `data.code` + `data.origin`. Server *lifecycle*

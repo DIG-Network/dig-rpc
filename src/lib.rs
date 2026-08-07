@@ -1,7 +1,7 @@
 //! # dig-rpc
 //!
 //! An axum-based JSON-RPC **server framework** for a DIG node. It serves the
-//! canonical [`dig-rpc-types`](dig_rpc_types) interface over the three DIG
+//! canonical [`dig-rpc-protocol`](dig_rpc_types) interface over the three DIG
 //! transport surfaces and owns everything transport-shaped so a node doesn't
 //! have to:
 //!
@@ -29,7 +29,7 @@
 //!      ▼  axum handler
 //!   ┌────────────────────────────────────────────────┐
 //!   │ rate limit  — per (peer, tier) token bucket      │
-//!   │ dispatch    — resolve method (dig-rpc-types)      │
+//!   │ dispatch    — resolve method (dig-rpc-protocol)    │
 //!   │             — surface/tier allowlist boundary     │
 //!   │             — rpc.discover from OpenRPC generator │
 //!   │             — RpcHandler::handle (node semantics) │

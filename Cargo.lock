@@ -211,7 +211,7 @@ dependencies = [
  "async-trait",
  "axum",
  "axum-server",
- "dig-rpc-types",
+ "dig-rpc-protocol",
  "http-body-util",
  "parking_lot",
  "rcgen",
@@ -228,8 +228,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "dig-rpc-types"
-version = "0.2.0"
+name = "dig-rpc-protocol"
+version = "0.7.0"
 dependencies = [
  "serde",
  "serde_json",

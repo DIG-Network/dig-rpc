@@ -225,7 +225,7 @@ checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 
 [[package]]
 name = "dig-rpc"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -249,9 +249,9 @@ dependencies = [
 
 [[package]]
 name = "dig-rpc-protocol"
-version = "0.5.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41c257cb4f8696ad0a4a6ce3a478bb9fc9d45868d1b5369f3edc8144de20dfaf"
+checksum = "cf07469bdd36a72af2359637d8d707b5d56b0b7d94652b4614d808767498d3de"
 dependencies = [
  "serde",
  "serde_json",

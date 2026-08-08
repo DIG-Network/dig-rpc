@@ -28,7 +28,7 @@ jobs:
   # WHY this replaced the old "Release verification" workflow: dig-rpc predates
   # dig-rpc-protocol being on crates.io — it needed a sibling checkout of the
   # dig-rpc-types path dep, which made `cargo publish` impossible. The dep is
-  # crates.io-published now (dig-rpc-protocol ^0.4), so this crate publishes
+  # crates.io-published now (see Cargo.toml for the pin), so this crate publishes
   # like every other DIG crate (CLAUDE.md §3.6 all-crates rule).
   publish:
     name: Publish to crates.io

@@ -1,6 +1,6 @@
 [package]
 name = "dig-rpc"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 rust-version = "1.75"
 description = "Axum-based JSON-RPC server framework for a DIG node. Serves the dig-rpc-protocol interface over mTLS (peer) / HTTPS (public read) / loopback (control), with tier-based method allow-lists, per-peer rate limiting, and graceful shutdown. The node supplies a handler; this crate owns the transport + envelope + boundary."
@@ -27,7 +27,7 @@ include = [
 # `pub use dig_rpc_protocol::self` (src/lib.rs) re-exports the whole crate, so
 # this requirement IS part of dig-rpc's public surface — a protocol minor is a
 # dig-rpc minor.
-dig-rpc-protocol = "0.7"
+dig-rpc-protocol = "0.10"
 
 # HTTP stack.
 axum = { version = "0.7", features = ["http1", "http2", "json"] }
